@@ -12,6 +12,12 @@ class Curriculum(Base):
     skill_name = Column(String, nullable=False)
     description = Column(Text)
     overall_structure = Column(JSON)
+    blueprint_version = Column(String, nullable=True)
+    exam_code = Column(String, nullable=True)
+    validation_status = Column(String, default="pending")
+    sources = Column(JSON, default=list)
+    objectives = Column(JSON, default=list)
+    is_stale = Column(String, default="false")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="curricula")
@@ -42,6 +48,9 @@ class Topic(Base):
     order_index = Column(Integer, nullable=False)
     difficulty = Column(String, default="beginner")
     status = Column(String, default="not_started")
+    objective_ids = Column(JSON, default=list)
+    source_urls = Column(JSON, default=list)
+    validation_status = Column(String, default="pending")
 
     module = relationship("Module", back_populates="topics")
     resources = relationship("Resource", back_populates="topic", cascade="all, delete-orphan")

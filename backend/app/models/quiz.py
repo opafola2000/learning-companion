@@ -11,6 +11,10 @@ class Quiz(Base):
     topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
     quiz_type = Column(String, default="practice")
     num_questions = Column(Integer, nullable=False)
+    blueprint_version = Column(String, nullable=True)
+    exam_code = Column(String, nullable=True)
+    validation_status = Column(String, default="pending")
+    is_stale = Column(String, default="false")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     topic = relationship("Topic", back_populates="quizzes")
@@ -26,6 +30,9 @@ class Question(Base):
     question_text = Column(Text, nullable=False)
     explanation = Column(Text)
     difficulty = Column(String, default="intermediate")
+    objective_id = Column(String, nullable=True)
+    source_reference = Column(String, nullable=True)
+    citation_snippet = Column(Text, nullable=True)
 
     quiz = relationship("Quiz", back_populates="questions")
     options = relationship("AnswerOption", back_populates="question", cascade="all, delete-orphan")

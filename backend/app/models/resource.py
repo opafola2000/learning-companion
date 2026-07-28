@@ -12,5 +12,8 @@ class Resource(Base):
     url = Column(String, nullable=False)
     type = Column(String, default="article")
     summary = Column(Text)
+    source_domain = Column(String, nullable=True)
+    trust_tier = Column(String, default="unknown")
+    citation_snippet = Column(Text, nullable=True)
 
     topic = relationship("Topic", back_populates="resources")

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.models.curriculum import Curriculum
 from app.routers.auth import get_current_user
 from app.schemas.progress import CurriculumProgressResponse, RecommendationResponse
 from app.services.mastery_service import get_curriculum_progress, get_recommendations
@@ -24,6 +25,13 @@ def curriculum_progress(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    curriculum = db.query(Curriculum).filter(
+        Curriculum.id == curriculum_id,
+        Curriculum.user_id == current_user.id,
+    ).first()
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum not found")
+
     try:
         return get_curriculum_progress(db, current_user.id, curriculum_id)
     except ValueError as e:

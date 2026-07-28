@@ -16,3 +16,5 @@ class User(Base):
     curricula = relationship("Curriculum", back_populates="user")
     quiz_attempts = relationship("QuizAttempt", back_populates="user")
     topic_masteries = relationship("TopicMastery", back_populates="user")
+    learning_events = relationship("LearningEvent", back_populates="user")
+    learner_profile = relationship("LearnerProfile", back_populates="user", uselist=False)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,17 +11,24 @@ from app.schemas.quiz import (
     QuestionResponse, AnswerOptionResponse,
 )
 from app.services.quiz_service import generate_quiz, submit_quiz
+from app.services.access_control import verify_topic_access
+from app.services.audit_service import log_action
+from app.limiter import limiter
 
 router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
 
 @router.post("/generate/{topic_id}", response_model=QuizResponse)
+@limiter.limit("5/minute")
 def create_quiz(
+    request: Request,
     topic_id: int,
     data: GenerateQuizRequest = GenerateQuizRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    verify_topic_access(db, topic_id, current_user.id)
+
     mastery = db.query(TopicMastery).filter(
         TopicMastery.user_id == current_user.id,
         TopicMastery.topic_id == topic_id,
@@ -30,8 +37,18 @@ def create_quiz(
 
     try:
         quiz = generate_quiz(
-            db, topic_id, data.num_questions, data.quiz_type, mastery_level
+            db, topic_id, data.num_questions, data.quiz_type, mastery_level,
+            user_id=current_user.id,
         )
+        log_action(
+            db,
+            "quiz_generated",
+            user_id=current_user.id,
+            resource_type="quiz",
+            resource_id=quiz.id,
+            ip_address=request.client.host if request.client else None,
+        )
+        db.commit()
         return _build_quiz_response(quiz)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(e)}")
@@ -46,6 +63,7 @@ def get_quiz(
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    verify_topic_access(db, quiz.topic_id, current_user.id)
     return _build_quiz_response(quiz)
 
 
@@ -56,6 +74,11 @@ def submit_quiz_answers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    verify_topic_access(db, quiz.topic_id, current_user.id)
+
     try:
         answers = [
             {"question_id": a.question_id, "selected_option_id": a.selected_option_id}
@@ -78,6 +101,7 @@ def _build_quiz_response(quiz: Quiz) -> QuizResponse:
             id=q.id,
             question_text=q.question_text,
             difficulty=q.difficulty,
+            objective_id=q.objective_id,
             options=options,
         ))
     return QuizResponse(
@@ -86,5 +110,8 @@ def _build_quiz_response(quiz: Quiz) -> QuizResponse:
         quiz_type=quiz.quiz_type,
         num_questions=quiz.num_questions,
         created_at=quiz.created_at,
+        exam_code=quiz.exam_code,
+        blueprint_version=quiz.blueprint_version,
+        validation_status=quiz.validation_status,
         questions=questions,
     )

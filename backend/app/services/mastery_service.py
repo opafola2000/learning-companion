@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
+
 from app.models.progress import TopicMastery
-from app.models.curriculum import Curriculum, Module, Topic
-from app.services.bedrock_client import get_bedrock_client
+from app.models.curriculum import Curriculum
+from app.services.memory_service import is_due_for_review
 
 
 def get_curriculum_progress(db: Session, user_id: int, curriculum_id: int) -> dict:
@@ -36,6 +37,7 @@ def get_curriculum_progress(db: Session, user_id: int, curriculum_id: int) -> di
                 "mastery_score": score,
                 "attempts_count": mastery.attempts_count if mastery else 0,
                 "last_assessed": mastery.last_assessed if mastery else None,
+                "next_review_at": mastery.next_review_at if mastery else None,
                 "status": status,
             })
 
@@ -44,6 +46,9 @@ def get_curriculum_progress(db: Session, user_id: int, curriculum_id: int) -> di
     return {
         "curriculum_id": curriculum_id,
         "skill_name": curriculum.skill_name,
+        "exam_code": curriculum.exam_code,
+        "blueprint_version": curriculum.blueprint_version,
+        "validation_status": curriculum.validation_status,
         "overall_mastery": overall,
         "topics": topics_progress,
     }
@@ -55,7 +60,6 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
     ).all()
 
     mastery_map = {m.topic_id: m for m in masteries}
-
     curricula = db.query(Curriculum).filter(Curriculum.user_id == user_id).all()
 
     recommendations = []
@@ -66,8 +70,23 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
             for topic in module.topics:
                 mastery = mastery_map.get(topic.id)
                 score = mastery.mastery_score if mastery else 0.0
+                due = is_due_for_review(mastery)
 
-                if mastery is None:
+                if due and mastery and score >= 30:
+                    priority += 1
+                    recommendations.append({
+                        "topic_id": topic.id,
+                        "topic_title": topic.title,
+                        "module_title": module.title,
+                        "current_mastery": score,
+                        "recommendation_type": "spaced_review",
+                        "reason": (
+                            f"Spaced repetition: '{topic.title}' is due for review "
+                            f"(last score {score:.0f}%)."
+                        ),
+                        "priority": priority,
+                    })
+                elif mastery is None:
                     priority += 1
                     recommendations.append({
                         "topic_id": topic.id,
@@ -86,7 +105,10 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
                         "module_title": module.title,
                         "current_mastery": score,
                         "recommendation_type": "review",
-                        "reason": f"Your mastery of '{topic.title}' is low ({score:.0f}%). Review the fundamentals and retake practice quizzes.",
+                        "reason": (
+                            f"Your mastery of '{topic.title}' is low ({score:.0f}%). "
+                            "Review the fundamentals and retake practice quizzes."
+                        ),
                         "priority": priority,
                     })
                 elif score < 60:
@@ -97,7 +119,10 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
                         "module_title": module.title,
                         "current_mastery": score,
                         "recommendation_type": "practice",
-                        "reason": f"You're making progress on '{topic.title}' ({score:.0f}%). Take more practice quizzes to reinforce your knowledge.",
+                        "reason": (
+                            f"You're making progress on '{topic.title}' ({score:.0f}%). "
+                            "Take more practice quizzes to reinforce your knowledge."
+                        ),
                         "priority": priority,
                     })
                 elif score < 80:
@@ -107,7 +132,10 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
                         "module_title": module.title,
                         "current_mastery": score,
                         "recommendation_type": "challenge",
-                        "reason": f"You're proficient in '{topic.title}' ({score:.0f}%). Try advanced-level questions to push for mastery.",
+                        "reason": (
+                            f"You're proficient in '{topic.title}' ({score:.0f}%). "
+                            "Try advanced-level questions to push for mastery."
+                        ),
                         "priority": priority + 100,
                     })
 
@@ -118,6 +146,8 @@ def get_recommendations(db: Session, user_id: int) -> list[dict]:
 def _mastery_status(score: float, mastery: TopicMastery | None) -> str:
     if mastery is None or mastery.attempts_count == 0:
         return "not_started"
+    if is_due_for_review(mastery) and mastery.attempts_count > 0:
+        return "due_for_review"
     if score >= 80:
         return "mastered"
     if score >= 60:

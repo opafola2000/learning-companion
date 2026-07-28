@@ -1,5 +1,6 @@
 from tavily import TavilyClient
 from app.config import get_settings
+from app.data.exam_profiles import ExamProfile, DEFAULT_PROFILE
 
 
 class TavilySearchClient:
@@ -25,18 +26,50 @@ class TavilySearchClient:
         response = self.client.search(**kwargs)
         return response.get("results", [])
 
-    def search_exam_guide(self, skill_name: str) -> list[dict]:
+    def search_exam_guide(self, skill_name: str, profile: ExamProfile | None = None) -> list[dict]:
+        profile = profile or DEFAULT_PROFILE
+        year = profile.effective_date[:4]
+        query = (
+            f"{skill_name} {profile.exam_code} official exam guide objectives syllabus {year}"
+        )
+        domains = profile.allowed_domains or None
         return self.search(
-            query=f"{skill_name} official exam guide objectives syllabus",
-            max_results=5,
+            query=query,
+            max_results=8,
             search_depth="advanced",
+            include_domains=domains,
         )
 
-    def search_resources(self, topic: str, skill_context: str) -> list[dict]:
+    def search_exam_updates(self, skill_name: str, profile: ExamProfile) -> list[dict]:
+        query = f"{skill_name} {profile.exam_code} exam changes updates {profile.blueprint_version}"
         return self.search(
-            query=f"{topic} tutorial guide learning resource for {skill_context}",
+            query=query,
+            max_results=5,
+            search_depth="advanced",
+            include_domains=profile.allowed_domains or None,
+        )
+
+    def search_resources(self, topic: str, skill_context: str, profile: ExamProfile | None = None) -> list[dict]:
+        profile = profile or DEFAULT_PROFILE
+        query = f"{topic} official documentation tutorial for {skill_context}"
+        domains = profile.trusted_resource_domains or profile.allowed_domains or None
+        return self.search(
+            query=query,
             max_results=10,
             search_depth="basic",
+            include_domains=domains,
+        )
+
+    def search_topic_for_quiz(self, topic: str, skill_context: str, profile: ExamProfile) -> list[dict]:
+        query = (
+            f"{topic} {skill_context} {profile.exam_code} exam objectives "
+            f"official documentation {profile.blueprint_version}"
+        )
+        return self.search(
+            query=query,
+            max_results=8,
+            search_depth="advanced",
+            include_domains=profile.allowed_domains or None,
         )
 
 

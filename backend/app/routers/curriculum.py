@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,8 +12,11 @@ from app.schemas.curriculum import (
     CurriculumListItem,
     ModuleResponse,
     TopicResponse,
+    SourceCitation,
 )
 from app.services.curriculum_service import generate_curriculum
+from app.services.audit_service import log_action
+from app.limiter import limiter
 
 router = APIRouter(prefix="/api/curriculum", tags=["curriculum"])
 
@@ -45,6 +48,9 @@ def list_curricula(
             skill_name=c.skill_name,
             description=c.description,
             created_at=c.created_at,
+            exam_code=c.exam_code,
+            blueprint_version=c.blueprint_version,
+            validation_status=c.validation_status,
             module_count=len(c.modules),
             topic_count=topic_count,
             overall_mastery=overall,
@@ -53,13 +59,25 @@ def list_curricula(
 
 
 @router.post("/generate", response_model=CurriculumResponse)
+@limiter.limit("3/minute")
 def create_curriculum(
+    request: Request,
     data: GenerateCurriculumRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     try:
         curriculum = generate_curriculum(db, current_user.id, data.skill_name)
+        log_action(
+            db,
+            "curriculum_generated",
+            user_id=current_user.id,
+            resource_type="curriculum",
+            resource_id=curriculum.id,
+            ip_address=request.client.host if request.client else None,
+            details={"skill_name": data.skill_name},
+        )
+        db.commit()
         return _build_curriculum_response(db, curriculum, current_user.id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate curriculum: {str(e)}")
@@ -100,6 +118,9 @@ def _build_curriculum_response(
                 difficulty=topic.difficulty,
                 status=topic.status,
                 mastery_score=mastery.mastery_score if mastery else None,
+                objective_ids=topic.objective_ids or [],
+                source_urls=topic.source_urls or [],
+                validation_status=topic.validation_status,
             ))
         modules.append(ModuleResponse(
             id=module.id,
@@ -110,10 +131,19 @@ def _build_curriculum_response(
             topics=topics,
         ))
 
+    sources = [
+        SourceCitation(**s) if isinstance(s, dict) else s
+        for s in (curriculum.sources or [])
+    ]
+
     return CurriculumResponse(
         id=curriculum.id,
         skill_name=curriculum.skill_name,
         description=curriculum.description,
         created_at=curriculum.created_at,
+        exam_code=curriculum.exam_code,
+        blueprint_version=curriculum.blueprint_version,
+        validation_status=curriculum.validation_status,
+        sources=sources,
         modules=modules,
     )

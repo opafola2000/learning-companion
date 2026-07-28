@@ -1,6 +1,7 @@
 import json
 import httpx
 from app.config import get_settings
+from app.utils.json_parse import parse_llm_json
 
 
 class AnthropicClient:
@@ -48,13 +49,10 @@ class AnthropicClient:
 
     @staticmethod
     def _parse_json(raw: str) -> dict:
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
-        return json.loads(raw)
+        result = parse_llm_json(raw)
+        if isinstance(result, dict):
+            return result
+        return {"items": result}
 
     def invoke_sonnet_json(self, system_prompt: str, user_message: str, max_tokens: int = 4096) -> dict:
         full_system = system_prompt + "\n\nYou MUST respond with valid JSON only. No markdown, no code fences, no extra text."

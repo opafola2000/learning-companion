@@ -39,6 +39,9 @@ class TopicMastery(Base):
     mastery_score = Column(Float, default=0.0)
     attempts_count = Column(Integer, default=0)
     last_assessed = Column(DateTime)
+    next_review_at = Column(DateTime, nullable=True)
+    ease_factor = Column(Float, default=2.5)
+    interval_days = Column(Integer, default=1)
 
     user = relationship("User", back_populates="topic_masteries")
     topic = relationship("Topic", back_populates="masteries")

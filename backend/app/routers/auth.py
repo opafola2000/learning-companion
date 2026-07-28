@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 import bcrypt
@@ -11,6 +11,8 @@ from app.models.user import User
 from app.schemas.auth import (
     UserRegister, UserLogin, TokenResponse, TokenRefresh, UserResponse,
 )
+from app.services.audit_service import log_action
+from app.limiter import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -53,7 +55,8 @@ def get_current_user(
 
 
 @router.post("/register", response_model=UserResponse)
-def register(data: UserRegister, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -63,15 +66,30 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         name=data.name,
     )
     db.add(user)
+    db.flush()
+    log_action(
+        db,
+        "user_registered",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(user)
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(data: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not _verify_password(data.password, user.hashed_password):
+        log_action(
+            db,
+            "login_failed",
+            ip_address=request.client.host if request.client else None,
+            details={"email": data.email},
+        )
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     settings = get_settings()
@@ -83,11 +101,19 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
         {"sub": str(user.id), "type": "refresh"},
         timedelta(days=settings.refresh_token_expire_days),
     )
+    log_action(
+        db,
+        "login_success",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(data: TokenRefresh, db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+def refresh(request: Request, data: TokenRefresh, db: Session = Depends(get_db)):
     settings = get_settings()
     try:
         payload = jwt.decode(data.refresh_token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
