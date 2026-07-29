@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -25,12 +26,17 @@ def init_database() -> None:
     run_migrations(engine)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def _safe_init_database() -> None:
     try:
         init_database()
     except Exception:
         logger.exception("Database initialization failed; API will start but DB features may be unavailable")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, _safe_init_database)
     yield
 
 
@@ -65,19 +71,9 @@ app.include_router(feedback.router)
 
 @app.get("/api/health")
 def health_check():
-    db_status = "unknown"
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        db_status = "connected"
-    except Exception:
-        db_status = "unavailable"
-    return {
-        "status": "healthy",
-        "service": "learning-companion",
-        "version": "2.0.0",
-        "database": db_status,
-    }
+    # Keep this fast — App Runner health checks often time out at ~5s.
+    # Do not probe the database here.
+    return {"status": "healthy", "service": "learning-companion", "version": "2.0.0"}
 
 
 @app.get("/api/trust")

@@ -12,6 +12,9 @@ credentials.json
 *.credentials
 .aws/
 aws-credentials*
+.rds-password
+backend/.rds-password
+backend/rds-connection-info.txt
 
 # --- Python ---
 __pycache__/
@@ -66,3 +69,10 @@ logs/
 *.bak
 *.tmp
 .cache/
+
+# --- Local deploy artifacts (keep setup scripts only) ---
+scripts/*.json
+scripts/*.txt
+scripts/apprunner-*.json
+!scripts/setup-rds-postgres.ps1
+

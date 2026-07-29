@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { login } from "../api/auth";
 import { useAuth } from "../contexts/AuthContext";
 import AuthLayout from "../components/AuthLayout";
+import { formatApiError } from "../utils/apiError";
 
 const inputClass =
   "w-full px-4 py-2.5 border border-indigo-100 rounded-lg bg-indigo-50/40 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-shadow";
@@ -15,7 +16,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { setTokens } = useAuth();
+  const { setTokens, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,11 +24,13 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
+      // Drop any previous session so we never keep another user's tokens.
+      logout();
       const data = await login(email, password);
       setTokens(data.access_token, data.refresh_token);
       navigate("/");
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Login failed");
+    } catch (err: unknown) {
+      setError(formatApiError(err, "Login failed"));
     } finally {
       setLoading(false);
     }

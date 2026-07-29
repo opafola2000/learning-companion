@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { generateQuiz, submitQuiz } from "../api/quiz";
 import LoadingSpinner from "../components/LoadingSpinner";
+import TrustDisclaimer from "../components/TrustDisclaimer";
+import ReportContentButton from "../components/ReportContentButton";
 
 interface AnswerOption {
   id: number;
@@ -14,6 +16,9 @@ interface Question {
   question_text: string;
   difficulty: string;
   explanation?: string | null;
+  objective_id?: string | null;
+  source_reference?: string | null;
+  citation_snippet?: string | null;
   options: AnswerOption[];
   user_selected_option_id?: number | null;
   is_correct?: boolean | null;
@@ -24,6 +29,9 @@ interface QuizData {
   topic_id: number;
   quiz_type: string;
   num_questions: number;
+  exam_code?: string | null;
+  blueprint_version?: string | null;
+  validation_status?: string | null;
   questions: Question[];
 }
 
@@ -34,6 +42,8 @@ interface QuizResult {
   correct_count: number;
   questions: Question[];
   mastery_update: number | null;
+  exam_code?: string | null;
+  blueprint_version?: string | null;
 }
 
 type Phase = "generating" | "taking" | "submitted";
@@ -122,6 +132,30 @@ export default function Quiz() {
       >
         &larr; Back
       </button>
+
+      <div className="mb-4">
+        <TrustDisclaimer />
+      </div>
+
+      {quiz && (quiz.exam_code || quiz.blueprint_version) && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {quiz.exam_code && (
+            <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+              Exam: {quiz.exam_code}
+            </span>
+          )}
+          {quiz.blueprint_version && (
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+              Blueprint: {quiz.blueprint_version}
+            </span>
+          )}
+          {quiz.validation_status && (
+            <span className="text-xs px-2 py-1 rounded-full bg-green-50 text-green-700">
+              {quiz.validation_status.replace("_", " ")}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Score banner */}
       {phase === "submitted" && result && (
@@ -233,6 +267,24 @@ export default function Quiz() {
               {isSubmitted && q.explanation && (
                 <div className="mt-4 ml-10 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                   <strong>Explanation:</strong> {q.explanation}
+                  {q.objective_id && (
+                    <p className="text-xs mt-2 text-blue-600">
+                      Objective: {q.objective_id}
+                    </p>
+                  )}
+                  {q.source_reference && (
+                    <p className="text-xs mt-1 text-blue-600">
+                      Source: {q.source_reference}
+                    </p>
+                  )}
+                  {q.citation_snippet && (
+                    <p className="text-xs mt-1 italic text-blue-700">
+                      &ldquo;{q.citation_snippet}&rdquo;
+                    </p>
+                  )}
+                  <div className="mt-2">
+                    <ReportContentButton contentType="question" contentId={q.id} />
+                  </div>
                 </div>
               )}
             </div>
@@ -283,7 +335,7 @@ export default function Quiz() {
         )}
       </div>
 
-      {error && phase !== "generating" && (
+      {error && (
         <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm text-center">
           {error}
         </div>

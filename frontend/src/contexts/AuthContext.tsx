@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { getMe } from "../api/auth";
+import {
+  clearAuthTokens,
+  getAccessToken,
+  storeAuthTokens,
+} from "../utils/authStorage";
 
 interface User {
   id: number;
@@ -26,8 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     if (!token) {
+      setUser(null);
       setLoading(false);
       return;
     }
@@ -35,8 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await getMe();
       setUser(data);
     } catch {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
+      clearAuthTokens();
       setUser(null);
     } finally {
       setLoading(false);
@@ -49,16 +54,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setTokens = useCallback(
     (access: string, refresh: string) => {
-      localStorage.setItem("access_token", access);
-      localStorage.setItem("refresh_token", refresh);
+      storeAuthTokens(access, refresh);
+      setLoading(true);
       fetchUser();
     },
     [fetchUser]
   );
 
   const logout = useCallback(() => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+    clearAuthTokens();
     setUser(null);
   }, []);
 

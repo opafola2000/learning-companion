@@ -4,17 +4,13 @@ import { getCurriculum } from "../api/curriculum";
 import { searchResources, getResources } from "../api/progress";
 import LoadingSpinner from "../components/LoadingSpinner";
 import MasteryBadge from "../components/MasteryBadge";
+import TrustDisclaimer from "../components/TrustDisclaimer";
+import ReportContentButton from "../components/ReportContentButton";
 
-interface AnswerOption {
-  id: number;
-  option_text: string;
-}
-
-interface Question {
-  id: number;
-  question_text: string;
-  difficulty: string;
-  options: AnswerOption[];
+interface SourceCitation {
+  title: string;
+  url: string;
+  retrieved_at?: string;
 }
 
 interface Topic {
@@ -24,6 +20,9 @@ interface Topic {
   difficulty: string;
   status: string;
   mastery_score: number | null;
+  objective_ids?: string[];
+  source_urls?: string[];
+  validation_status?: string | null;
 }
 
 interface Module {
@@ -39,6 +38,10 @@ interface Curriculum {
   skill_name: string;
   description: string | null;
   created_at: string;
+  exam_code?: string | null;
+  blueprint_version?: string | null;
+  validation_status?: string | null;
+  sources?: SourceCitation[];
   modules: Module[];
 }
 
@@ -48,6 +51,23 @@ interface Resource {
   url: string;
   type: string;
   summary: string | null;
+  trust_tier?: string | null;
+  citation_snippet?: string | null;
+}
+
+function ValidationBadge({ status }: { status?: string | null }) {
+  if (!status) return null;
+  const colors =
+    status === "verified"
+      ? "bg-green-50 text-green-700"
+      : status === "needs_review"
+      ? "bg-yellow-50 text-yellow-700"
+      : "bg-red-50 text-red-700";
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${colors}`}>
+      {status.replace("_", " ")}
+    </span>
+  );
 }
 
 export default function CurriculumView() {
@@ -99,23 +119,57 @@ export default function CurriculumView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <button
           onClick={() => navigate("/")}
           className="text-sm text-indigo-600 hover:underline mb-2 inline-block"
         >
           &larr; Back to Dashboard
         </button>
-        <h1 className="text-3xl font-bold text-gray-900">
-          {curriculum.skill_name}
-        </h1>
+        <h1 className="text-3xl font-bold text-gray-900">{curriculum.skill_name}</h1>
         {curriculum.description && (
           <p className="text-gray-500 mt-2 text-lg">{curriculum.description}</p>
         )}
+        <div className="flex flex-wrap gap-2 mt-3 items-center">
+          {curriculum.exam_code && (
+            <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+              Exam: {curriculum.exam_code}
+            </span>
+          )}
+          {curriculum.blueprint_version && (
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+              Blueprint: {curriculum.blueprint_version}
+            </span>
+          )}
+          <ValidationBadge status={curriculum.validation_status} />
+          <ReportContentButton contentType="curriculum" contentId={curriculum.id} />
+        </div>
       </div>
 
-      {/* Modules */}
+      <div className="mb-6">
+        <TrustDisclaimer />
+      </div>
+
+      {curriculum.sources && curriculum.sources.length > 0 && (
+        <div className="mb-6 bg-white border rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Official sources used</h3>
+          <ul className="space-y-1">
+            {curriculum.sources.map((s, i) => (
+              <li key={i}>
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-indigo-600 hover:underline"
+                >
+                  {s.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="space-y-4">
         {curriculum.modules.map((module, modIdx) => (
           <div
@@ -124,9 +178,7 @@ export default function CurriculumView() {
           >
             <button
               onClick={() =>
-                setExpandedModule(
-                  expandedModule === module.id ? null : module.id
-                )
+                setExpandedModule(expandedModule === module.id ? null : module.id)
               }
               className="w-full text-left p-6 flex justify-between items-center hover:bg-gray-50 transition-colors"
             >
@@ -135,34 +187,13 @@ export default function CurriculumView() {
                   {modIdx + 1}
                 </span>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {module.title}
-                  </h3>
+                  <h3 className="text-lg font-semibold text-gray-900">{module.title}</h3>
                   {module.description && (
                     <p className="text-sm text-gray-500">{module.description}</p>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-400">
-                  {module.topics.length} topics
-                </span>
-                <svg
-                  className={`w-5 h-5 text-gray-400 transition-transform ${
-                    expandedModule === module.id ? "rotate-180" : ""
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </div>
+              <span className="text-sm text-gray-400">{module.topics.length} topics</span>
             </button>
 
             {expandedModule === module.id && (
@@ -171,25 +202,19 @@ export default function CurriculumView() {
                   <div key={topic.id} className="py-4 border-b border-gray-50 last:border-0">
                     <div className="flex justify-between items-center">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3">
-                          <h4 className="font-medium text-gray-900">
-                            {topic.title}
-                          </h4>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${
-                              topic.difficulty === "advanced"
-                                ? "bg-red-50 text-red-600"
-                                : topic.difficulty === "intermediate"
-                                ? "bg-yellow-50 text-yellow-600"
-                                : "bg-green-50 text-green-600"
-                            }`}
-                          >
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <h4 className="font-medium text-gray-900">{topic.title}</h4>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
                             {topic.difficulty}
                           </span>
+                          <ValidationBadge status={topic.validation_status} />
                         </div>
                         {topic.description && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            {topic.description}
+                          <p className="text-sm text-gray-500 mt-1">{topic.description}</p>
+                        )}
+                        {topic.objective_ids && topic.objective_ids.length > 0 && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Objectives: {topic.objective_ids.join(", ")}
                           </p>
                         )}
                       </div>
@@ -197,27 +222,23 @@ export default function CurriculumView() {
                         <MasteryBadge score={topic.mastery_score} size="sm" />
                         <button
                           onClick={() => navigate(`/quiz/${topic.id}`)}
-                          className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                          className="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                         >
                           Quiz
                         </button>
                         <button
                           onClick={() => handleLoadResources(topic.id)}
-                          className="text-sm px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                          className="text-sm px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                         >
                           Resources
                         </button>
                       </div>
                     </div>
 
-                    {/* Resources section */}
                     {expandedTopic === topic.id && (
                       <div className="mt-3 ml-4 p-4 bg-gray-50 rounded-lg">
                         {loadingResources === topic.id ? (
-                          <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
-                            Searching for resources...
-                          </div>
+                          <p className="text-sm text-gray-500">Searching for resources...</p>
                         ) : resources[topic.id]?.length > 0 ? (
                           <ul className="space-y-3">
                             {resources[topic.id].map((r) => (
@@ -233,18 +254,25 @@ export default function CurriculumView() {
                                 <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
                                   {r.type}
                                 </span>
+                                {r.trust_tier && (
+                                  <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                                    {r.trust_tier}
+                                  </span>
+                                )}
                                 {r.summary && (
-                                  <p className="text-xs text-gray-500 mt-0.5">
-                                    {r.summary}
+                                  <p className="text-xs text-gray-500 mt-0.5">{r.summary}</p>
+                                )}
+                                {r.citation_snippet && (
+                                  <p className="text-xs text-gray-400 mt-0.5 italic">
+                                    &ldquo;{r.citation_snippet}&rdquo;
                                   </p>
                                 )}
+                                <ReportContentButton contentType="resource" contentId={r.id} />
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          <p className="text-sm text-gray-400">
-                            No resources found.
-                          </p>
+                          <p className="text-sm text-gray-400">No resources found.</p>
                         )}
                       </div>
                     )}

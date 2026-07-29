@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { listCurricula, generateCurriculum } from "../api/curriculum";
 import { getRecommendations } from "../api/progress";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { formatApiError } from "../utils/apiError";
 
 interface CurriculumItem {
   id: number;
@@ -37,18 +38,27 @@ export default function Dashboard() {
   }, []);
 
   async function loadData() {
+    setError("");
+    const errors: string[] = [];
+
     try {
-      const [currData, recData] = await Promise.all([
-        listCurricula(),
-        getRecommendations(),
-      ]);
+      const currData = await listCurricula();
       setCurricula(currData);
-      setRecommendations(recData);
-    } catch {
-      setError("Failed to load data");
-    } finally {
-      setLoading(false);
+    } catch (err: unknown) {
+      errors.push(formatApiError(err, "Could not load learning paths"));
     }
+
+    try {
+      const recData = await getRecommendations();
+      setRecommendations(recData);
+    } catch (err: unknown) {
+      errors.push(formatApiError(err, "Could not load recommendations"));
+    }
+
+    if (errors.length > 0) {
+      setError(errors.join(" "));
+    }
+    setLoading(false);
   }
 
   async function handleGenerate(e: React.FormEvent) {

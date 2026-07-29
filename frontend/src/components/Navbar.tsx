@@ -38,7 +38,10 @@ export default function Navbar() {
           </div>
           {user && (
             <div className="flex items-center gap-4">
-              <span className="text-sm text-indigo-100/80">Hi, {user.name}</span>
+              <span className="text-sm text-indigo-100/80 text-right leading-tight">
+                <span className="block font-medium text-white">{user.name}</span>
+                <span className="block text-xs text-indigo-200/70">{user.email}</span>
+              </span>
               <button
                 onClick={handleLogout}
                 className="text-sm text-indigo-100 hover:text-amber-300 font-medium transition-colors"

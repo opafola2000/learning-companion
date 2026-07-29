@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -10,19 +11,29 @@ import Quiz from "./pages/Quiz";
 import Progress from "./pages/Progress";
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const [params] = useSearchParams();
+  const switchAccount = params.get("switch") === "1";
+
+  useEffect(() => {
+    if (switchAccount) {
+      logout();
+    }
+  }, [switchAccount, logout]);
+
+  const showAuthedShell = Boolean(user) && !switchAccount;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {user && <Navbar />}
+      {showAuthedShell && <Navbar />}
       <Routes>
         <Route
           path="/login"
-          element={user ? <Navigate to="/" replace /> : <Login />}
+          element={showAuthedShell ? <Navigate to="/" replace /> : <Login />}
         />
         <Route
           path="/register"
-          element={user ? <Navigate to="/" replace /> : <Register />}
+          element={showAuthedShell ? <Navigate to="/" replace /> : <Register />}
         />
         <Route
           path="/"

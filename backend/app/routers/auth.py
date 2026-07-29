@@ -30,7 +30,40 @@ def _create_token(data: dict, expires_delta: timedelta) -> str:
     settings = get_settings()
     to_encode = data.copy()
     to_encode["exp"] = datetime.now(timezone.utc) + expires_delta
+    to_encode["iss"] = "hanz-learning-companion"
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def _user_token_claims(user: User, token_type: str) -> dict:
+    """Bind tokens to both user id and email so recycled numeric IDs cannot impersonate."""
+    return {
+        "sub": str(user.id),
+        "email": user.email.lower(),
+        "type": token_type,
+    }
+
+
+def _resolve_user_from_payload(payload: dict, db: Session, *, expected_type: str) -> User:
+    user_id = payload.get("sub")
+    token_type = payload.get("type")
+    email = payload.get("email")
+    if user_id is None or token_type != expected_type:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    # Reject legacy tokens that only had a numeric sub (unsafe after DB resets).
+    if not email or not isinstance(email, str):
+        raise HTTPException(status_code=401, detail="Session expired — please sign in again")
+
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    if user.email.lower() != email.lower():
+        raise HTTPException(status_code=401, detail="Session expired — please sign in again")
+    return user
 
 
 def get_current_user(
@@ -40,28 +73,22 @@ def get_current_user(
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        token_type: str = payload.get("type", "access")
-        if user_id is None or token_type != "access":
-            raise HTTPException(status_code=401, detail="Invalid token")
-        user_id = int(user_id)
-    except (JWTError, ValueError, TypeError):
+        return _resolve_user_from_payload(payload, db, expected_type="access")
+    except HTTPException:
+        raise
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
 
 
 @router.post("/register", response_model=UserResponse)
 @limiter.limit("5/minute")
 def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == data.email).first():
+    email = data.email.strip().lower()
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
     user = User(
-        email=data.email,
+        email=email,
         hashed_password=_hash_password(data.password),
         name=data.name,
     )
@@ -81,7 +108,11 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
+    email = data.email.strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # Fallback for older rows that may not be lowercased
+        user = db.query(User).filter(User.email == data.email.strip()).first()
     if not user or not _verify_password(data.password, user.hashed_password):
         log_action(
             db,
@@ -94,11 +125,11 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
 
     settings = get_settings()
     access_token = _create_token(
-        {"sub": str(user.id), "type": "access"},
+        _user_token_claims(user, "access"),
         timedelta(minutes=settings.access_token_expire_minutes),
     )
     refresh_token = _create_token(
-        {"sub": str(user.id), "type": "refresh"},
+        _user_token_claims(user, "refresh"),
         timedelta(days=settings.refresh_token_expire_days),
     )
     log_action(
@@ -116,25 +147,23 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
 def refresh(request: Request, data: TokenRefresh, db: Session = Depends(get_db)):
     settings = get_settings()
     try:
-        payload = jwt.decode(data.refresh_token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        token_type: str = payload.get("type")
-        if user_id is None or token_type != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid refresh token")
-        user_id = int(user_id)
-    except (JWTError, ValueError, TypeError):
+        payload = jwt.decode(
+            data.refresh_token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        user = _resolve_user_from_payload(payload, db, expected_type="refresh")
+    except HTTPException:
+        raise
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
     access_token = _create_token(
-        {"sub": str(user.id), "type": "access"},
+        _user_token_claims(user, "access"),
         timedelta(minutes=settings.access_token_expire_minutes),
     )
     refresh_token = _create_token(
-        {"sub": str(user.id), "type": "refresh"},
+        _user_token_claims(user, "refresh"),
         timedelta(days=settings.refresh_token_expire_days),
     )
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
